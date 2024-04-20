@@ -5,10 +5,8 @@ using Master.Features.Enums;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
-using System.Collections.Generic;
 using System.Data;
 using System.Text;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace Master.Features;
 
@@ -170,13 +168,33 @@ public class PageService : IPageService
 
         foreach (var field in pageInputs!)
         {
-            if (field.DataType!.Equals(DatabaseDataType.Int.Name) || field.DataType!.Equals(DatabaseDataType.Bigint.Name))
+            if (
+                field.DataType!.Equals(DatabaseDataType.Binary.Name)
+                || field.DataType!.Equals(DatabaseDataType.Char.Name)
+                || field.DataType!.Equals(DatabaseDataType.Nchar.Name)
+                || field.DataType!.Equals(DatabaseDataType.Nvarchar.Name)
+                || field.DataType!.Equals(DatabaseDataType.Varbinary.Name)
+                || field.DataType!.Equals(DatabaseDataType.Varchar.Name)
+                )
+            {
+                fields.Append($"[{field.DatabaseName!.Replace(" ", "")}][{field.DataType}]({field.Size}) NULL,");
+            }
+            else if (
+                field.DataType!.Equals(DatabaseDataType.DateTime2.Name)
+                || field.DataType!.Equals(DatabaseDataType.DateTimeOffset.Name)
+                || field.DataType!.Equals(DatabaseDataType.Time.Name)
+                )
+            {
+                fields.Append($"[{field.DatabaseName!.Replace(" ", "")}][{field.DataType}](7) NULL,");
+            }
+            else if (field.DataType!.Equals(DatabaseDataType.Decimal.Name)
+                || field.DataType!.Equals(DatabaseDataType.Numeric.Name))
+            {
+                fields.Append($"[{field.DatabaseName!.Replace(" ", "")}][{field.DataType}]({field.DecimalPlace}) NULL,");
+            }
+            else
             {
                 fields.Append($"[{field.DatabaseName!.Replace(" ", "")}][{field.DataType}] NULL,");
-            }
-            if (field.DataType!.Equals(DatabaseDataType.Varchar.Name))
-            {
-                fields.Append($"[{field.DatabaseName!.Replace(" ", "")}][{field.DataType}]({field.VarcharSize}) NULL,");
             }
         }
 

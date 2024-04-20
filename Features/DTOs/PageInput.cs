@@ -9,7 +9,7 @@ public class PageInput
     public string? DatabaseName { get; set; }
     public string? FieldType { get; set; }
     public string? DataType { get; set; }
-    public string? VarcharSize { get; set; }
+    public string? Size { get; set; }
     public int DecimalPlace { get; set; }
     public string? PlaceHolder { get; set; }
     public ComboInput? ComboInput { get; set; } = new();
