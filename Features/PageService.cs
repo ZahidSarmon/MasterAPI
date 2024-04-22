@@ -1,4 +1,5 @@
 ﻿using Master.Data;
+using Master.Domain;
 using Master.Entities;
 using Master.Features.DTOs;
 using Master.Features.Enums;
@@ -18,7 +19,7 @@ public class PageService : IPageService
         _context = context;
     }
 
-    public async Task<PageInputValueDTO> GetPageInputValuesAsync(Guid pageId)
+    public async Task<PageInputValueModel> GetPageInputValuesAsync(Guid pageId)
     {
         var page = await GetPageAsync(pageId);
 
@@ -55,7 +56,7 @@ public class PageService : IPageService
 
                         string jsonArray = JsonConvert.SerializeObject(dataArray);
 
-                        return new PageInputValueDTO(columns, jsonArray);
+                        return new PageInputValueModel(columns, jsonArray);
                     }
                 }
                 finally
@@ -148,15 +149,15 @@ public class PageService : IPageService
         }
     }
 
-    public async Task<bool> PostAsync(PageCommand command)
+    public async Task<bool> PostPageInputsAsync(PageCommand command)
     {
-        var pageInputs = JsonConvert.DeserializeObject<IEnumerable<PageInput>>(command.Definition);
+        var pageInputs = JsonConvert.DeserializeObject<IEnumerable<PageInputModel>>(command.Definition);
 
         var page = new Page
         {
             Id = Guid.NewGuid(),
             Name = command.Name,
-            DbName = command.DatabaseName,
+            DatabaseName = command.DatabaseName,
             Definition = command.Definition
         };
 
@@ -198,35 +199,85 @@ public class PageService : IPageService
             }
         }
 
-        await ScriptGenerateAsync(page.DbName, fields);
+        await ScriptGenerateAsync(page.DatabaseName, fields);
 
         return true;
     }
 
-    public async Task<IEnumerable<PageInputDTO>> GetPageInputsAsync(Guid pageId)
+    public async Task<IEnumerable<PageInputModel>> GetPageInputsAsync(Guid pageId)
     {
         var pageInputs = await GetPageInputsDeserializeAsync(pageId);
 
-        if(pageInputs is null) return Enumerable.Empty<PageInputDTO>();
+        if(pageInputs is null) return Enumerable.Empty<PageInputModel>();
 
-        return pageInputs!
-            .Select(i => new PageInputDTO(i.Id!, i.Title!, i.DatabaseName!, i.FieldType!, i.PlaceHolder));
+        foreach (var pageInput in pageInputs)
+        {
+            var comboData = pageInput.ComboInput!.Data;
+
+            if (pageInput.ComboInput!.IsDataBaseSource)
+            {
+               comboData = (await GetComboDataLookupAsync(pageInput.ComboInput.TableRef)).ToList();
+            }
+
+            pageInput.ComboInput.Data = comboData;
+        }
+
+        return pageInputs;
     }
 
-    public async Task<IEnumerable<PageLookupDTO>> GetPagesAsync()
+    public async Task<IEnumerable<PageLookupModel>> GetPagesAsync()
     {
         return await _context.Set<Page>()
-            .Select(i => new PageLookupDTO(i.Id,i.Name,i.DbName))
+            .Select(i => new PageLookupModel(i.Id,i.Name,i.DatabaseName))
             .ToListAsync();
     }
 
-    private async Task<IEnumerable<PageInput>?> GetPageInputsDeserializeAsync(Guid pageId)
+    public async Task<IEnumerable<Lookup<string>>> GetTableColumnsAsync(string schema,string table)
+    {
+        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+            @"SELECT DISTINCT COLUMN_NAME As Id,COLUMN_NAME As Name FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @table
+                ORDER BY COLUMN_NAME",
+            [
+                new SqlParameter("@schema", schema),
+                new SqlParameter("@table", table)
+            ]
+            )
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Lookup<string>>> GetTableNamesAsync(string schema)
+    {
+        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+            "SELECT DISTINCT TABLE_NAME As Id,TABLE_NAME As Name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @schema ORDER BY TABLE_NAME",
+            new SqlParameter("@schema", schema)
+            )
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Lookup<string>>> GetTableSchemasAsync()
+    {
+        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+            "SELECT DISTINCT TABLE_SCHEMA AS Id,TABLE_SCHEMA AS Name  FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_SCHEMA"
+            )
+            .ToListAsync();
+    }
+     
+    private async Task<IEnumerable<Lookup<string>>> GetComboDataLookupAsync(ComboInputTableRefModel tableRef)
+    {
+        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+            $"SELECT DISTINCT CONVERT(varchar(200),[{tableRef.IdColumn}]) as Id,[{tableRef.NameColumn}] as Name FROM [{tableRef.TableSchema}].[{tableRef.TableName}] ORDER BY Name"
+            )
+            .ToListAsync();
+    }
+
+    private async Task<IEnumerable<PageInputModel>?> GetPageInputsDeserializeAsync(Guid pageId)
     {
         var page = await GetPageAsync(pageId);
 
-        if (page is null) return Enumerable.Empty<PageInput>();
+        if (page is null) return Enumerable.Empty<PageInputModel>();
 
-        return JsonConvert.DeserializeObject<IEnumerable<PageInput>>(page.Definition!);
+        return JsonConvert.DeserializeObject<IEnumerable<PageInputModel>>(page.Definition!);
     }
 
     private async Task<Page?> GetPageAsync(Guid id)

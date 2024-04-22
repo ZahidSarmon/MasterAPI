@@ -1,10 +1,11 @@
-﻿using Master.Features.DTOs;
+﻿using Master.Domain;
+using Master.Features.DTOs;
 
 namespace Master.Features;
 
 public interface IPageService
 {
-    Task<PageInputValueDTO> GetPageInputValuesAsync(Guid pageId);
+    Task<PageInputValueModel> GetPageInputValuesAsync(Guid pageId);
 
     Task<bool> PostPageInputValuesAsync(PostPageInputCommand command);
 
@@ -12,9 +13,15 @@ public interface IPageService
 
     Task<bool> DeletePageInputValuesAsync(DeletePageCommand command);
 
-    Task<bool> PostAsync(PageCommand command);
+    Task<bool> PostPageInputsAsync(PageCommand command);
 
-    Task<IEnumerable<PageInputDTO>> GetPageInputsAsync(Guid pageId);
+    Task<IEnumerable<PageInputModel>> GetPageInputsAsync(Guid pageId);
 
-    Task<IEnumerable<PageLookupDTO>> GetPagesAsync();
+    Task<IEnumerable<PageLookupModel>> GetPagesAsync();
+
+    Task<IEnumerable<Lookup<string>>> GetTableColumnsAsync(string schema, string table);
+
+    Task<IEnumerable<Lookup<string>>> GetTableNamesAsync(string schema);
+
+    Task<IEnumerable<Lookup<string>>> GetTableSchemasAsync();
 }

@@ -15,7 +15,7 @@ public class PageController : BaseController
     [HttpPost]
     public async Task<IActionResult> Post([FromBody] PageCommand command)
     {
-        var isCommand = await _service.PostAsync(command);
+        var isCommand = await _service.PostPageInputsAsync(command);
 
         return Ok(isCommand);
     }
@@ -68,4 +68,29 @@ public class PageController : BaseController
 
         return Ok(pageInputValue);
     }
+
+    [HttpGet("GetTableColumns", Name = "GetTableColumns")]
+    public async Task<IActionResult> GetTableNames([FromQuery] string Schema, [FromQuery] string Table)
+    {
+        var tableColumns = await _service.GetTableColumnsAsync(Schema,Table);
+
+        return Ok(tableColumns);
+    }
+
+    [HttpGet("GetTableNames", Name = "GetTableNames")]
+    public async Task<IActionResult> GetTableNames([FromQuery] string Schema)
+    {
+        var tableNames = await _service.GetTableNamesAsync(Schema);
+
+        return Ok(tableNames);
+    }
+
+    [HttpGet("GetTableSchemas", Name = "GetTableSchemas")]
+    public async Task<IActionResult> GetTableSchemas()
+    {
+        var tableSchemas = await _service.GetTableSchemasAsync();
+
+        return Ok(tableSchemas);
+    }
+
 }

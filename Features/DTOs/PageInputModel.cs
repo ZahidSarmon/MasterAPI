@@ -2,7 +2,7 @@
 
 namespace Master.Features.DTOs;
 
-public class PageInput
+public class PageInputModel
 {
     public string? Id { get; set; }
     public string? Title { get; set; }
@@ -12,7 +12,7 @@ public class PageInput
     public string? Size { get; set; }
     public int DecimalPlace { get; set; }
     public string? PlaceHolder { get; set; }
-    public ComboInput? ComboInput { get; set; } = new();
+    public ComboInputModel? ComboInput { get; set; } = new();
     public Selective<string>? RadioInputs { get; set; } = new();
    public Selective<string>? CheckBoxInputs { get; set; } = new();
     public string? DefaultDate { get; set; }
@@ -20,16 +20,17 @@ public class PageInput
     public int Ordinal { get; set; }
 }
 
-public class ComboInput
+public class ComboInputModel
 {
-    public bool IsDbSource { get; set; }
-    public List<Lookup<string>> FixedValues { get; set; } = new();
-    public ComboInputTableRef TableRef { get; set; } = new();
+    public bool IsDataBaseSource { get; set; }
+    public List<Lookup<string>> Data { get; set; } = new();
+    public ComboInputTableRefModel TableRef { get; set; } = new();
 }
 
 
-public class ComboInputTableRef
+public class ComboInputTableRefModel
 {
+    public string? TableSchema { get; set; }
     public string? TableName { get; set; }
     public string? IdColumn { get; set; }
     public string? NameColumn { get; set; }

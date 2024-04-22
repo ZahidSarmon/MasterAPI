@@ -1,6 +1,6 @@
 ﻿namespace Master.Features.DTOs;
 
-public class PageGridDTO
+public class PageGridModel
 {
     public Guid PageId { get; set; }
     public Guid PageInputId { get; set; }
