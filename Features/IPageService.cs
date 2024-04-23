@@ -17,11 +17,15 @@ public interface IPageService
 
     Task<IEnumerable<PageInputModel>> GetPageInputsAsync(Guid pageId);
 
-    Task<IEnumerable<PageLookupModel>> GetPagesAsync();
+    Task<IEnumerable<PageLookupModel>> GetLookupPagesAsync();
 
     Task<IEnumerable<Lookup<string>>> GetTableColumnsAsync(string schema, string table);
 
     Task<IEnumerable<Lookup<string>>> GetTableNamesAsync(string schema);
 
     Task<IEnumerable<Lookup<string>>> GetTableSchemasAsync();
+
+    Task<Property<Entities.Page>> GetPagesAsync(PageDR pagination);
+
+    Task<bool> DeletePageAsync(Guid id);
 }

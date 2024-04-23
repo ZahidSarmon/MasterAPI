@@ -12,20 +12,36 @@ public class PageController : BaseController
         _service = service;
     }
 
-    [HttpPost]
-    public async Task<IActionResult> Post([FromBody] PageCommand command)
+    [HttpPost("GetPages",Name ="GetPages")]
+    public async Task<IActionResult> GetPages([FromBody] PageDR pageDR)
     {
-        var isCommand = await _service.PostPageInputsAsync(command);
+        var pages = await _service.GetPagesAsync(pageDR);
+
+        return Ok(pages);
+    }
+
+    [HttpGet("GetLookupPages", Name = "GetLookupPages")]
+    public async Task<IActionResult> GetLookupPages()
+    {
+        var pages = await _service.GetLookupPagesAsync();
+
+        return Ok(pages);
+    }
+
+    [HttpDelete("DeletePage",Name ="DeletePage")]
+    public async Task<IActionResult> DeletePage([FromQuery] Guid id)
+    {
+        var isCommand = await _service.DeletePageAsync(id);
 
         return Ok(isCommand);
     }
 
-    [HttpGet]
-    public async Task<IActionResult> Get()
+    [HttpPost("PostPageInputs",Name = "PostPageInputs")]
+    public async Task<IActionResult> PostPageInputs([FromBody] PageCommand command)
     {
-        var pages = await _service.GetPagesAsync();
+        var isCommand = await _service.PostPageInputsAsync(command);
 
-        return Ok(pages);
+        return Ok(isCommand);
     }
 
     [HttpGet("GetPageInputs", Name = "GetPageInputs")]
