@@ -31,9 +31,11 @@ public class PageService : IPageService
 
         using (var connection = new SqlConnection(_context.Database.GetConnectionString()))
         {
-            var columns = $"Id,{string.Join(",", pageInputsDeserialize!.Select(i => i.DatabaseName))}";
+            var columns = $"Id,{string.Join(",", pageInputsDeserialize!
+                    .Where(i=>!string.IsNullOrWhiteSpace(i.DatabaseName))
+                    .Select(i => i.DatabaseName))}";
 
-            string query = $"select {columns} from {page!.Name}";
+            string query = $"select {columns} from {page!.DatabaseName}";
 
             using (var sqlCommand = new SqlCommand(query, connection))
             {
@@ -110,66 +112,17 @@ public class PageService : IPageService
                 if (command.Id is not null && command.Id != Guid.Empty)
                 {
                     await UpdatePageInputValueAsync(command, connection,transaction);
-
-
+                }
+                else
+                {
+                    await SavePageInputValueAsync(command, connection, transaction,pageInputId);
                 }
 
-                var columns = command.Columns.Where(i=>!string.IsNullOrWhiteSpace(i));
+                var multiselectQuery = BuildMultiselectPageInputValueQuery(command,pageInputId);
 
-                string buildPageInputQuery = @$"INSERT INTO {command.TableName} (Id,{string.Join(",", columns)},CreatedOn,CreatedBy) 
-                                    VALUES(@Id,{string.Join(",", columns.Select(item => $"@{item}"))},@CreatedOn,@CreatedBy)";
-
-                using (var sqlCommand = new SqlCommand(buildPageInputQuery, connection, transaction))
+                if (multiselectQuery.Length>0)
                 {
-                    foreach (var option in command.ColumnWithValues)
-                    {
-                        sqlCommand.Parameters.AddWithValue($"@{option.Key}",option.Value);
-                    }
-
-                    sqlCommand.Parameters.AddWithValue("@Id", pageInputId);
-                    sqlCommand.Parameters.AddWithValue("@CreatedOn",DateTime.UtcNow);
-                    sqlCommand.Parameters.AddWithValue("@CreatedBy", command.User);
-
-                    await sqlCommand.ExecuteNonQueryAsync();
-                }
-
-                var comboQueries = new StringBuilder();
-
-                foreach (var comboInput in command.ComboInputs)
-                {
-                    if (comboInput.Data.Count>0)
-                    {
-                        if (!string.IsNullOrWhiteSpace(comboInput.TableName))
-                        {
-                            string tableName = $"tb_{command.TableName}{comboInput.TableName}";
-
-                            foreach (var data in comboInput.Data)
-                            {
-                                string buildQuery = @$"INSERT INTO {tableName} (Id,{command.TableName}Id,{comboInput.TableName}Id,CreatedOn,CreatedBy) 
-                                    VALUES('{Guid.NewGuid()}','{pageInputId}','{data.Id}','{DateTime.UtcNow}','{command.CreatedBy}')";
-
-                                comboQueries.Append(buildQuery);
-                            }
-                        }
-                        else
-                        {
-                            string tableName = $"tb_{command.TableName}{_defaultExtendTable}";
-
-                            foreach (var data in comboInput.Data)
-                            {
-                                string buildQuery = @$"INSERT INTO {tableName} (Id,{command.TableName}Id,Value,CreatedOn,CreatedBy) 
-                                    VALUES('{Guid.NewGuid()}','{pageInputId}','{data.Id}','{DateTime.UtcNow}','{command.CreatedBy}')";
-
-                                comboQueries.Append(buildQuery);
-                            }
-
-                        }
-                    }
-                }
-
-                using (var sqlCommand = new SqlCommand(comboQueries.ToString(), connection, transaction))
-                {
-                    await sqlCommand.ExecuteNonQueryAsync();
+                    await ExecuteMultiselectPageInputValueAsync(multiselectQuery, connection, transaction);
                 }
 
                 transaction.Commit();
@@ -189,7 +142,9 @@ public class PageService : IPageService
         }
     }
 
-    private async Task UpdatePageInputValueAsync(PostPageInputCommand command,SqlConnection connection,SqlTransaction transaction)
+    private async Task UpdatePageInputValueAsync(PostPageInputCommand command,
+        SqlConnection connection,
+        SqlTransaction transaction)
     {
         string buildQuery = @$"UPDATE {command.TableName}
                                     SET {string.Join(",", command.Columns.Select(item => $"{item}=@{item}"))}
@@ -197,8 +152,6 @@ public class PageService : IPageService
 
         using (var sqlCommand = new SqlCommand(buildQuery, connection, transaction))
         {
-            connection.Open();
-
             foreach (var option in command.ColumnWithValues)
             {
                 sqlCommand.Parameters.AddWithValue($"@{option.Key}", option.Value);
@@ -209,6 +162,80 @@ public class PageService : IPageService
 
             await sqlCommand.ExecuteNonQueryAsync();
         }
+    }
+
+    private async Task SavePageInputValueAsync(PostPageInputCommand command, 
+        SqlConnection connection, 
+        SqlTransaction transaction,
+        Guid pageInputId)
+    {
+        var columns = command.Columns.Where(i => !string.IsNullOrWhiteSpace(i));
+
+        string buildPageInputQuery = @$"INSERT INTO {command.TableName} (Id,{string.Join(",", columns)},CreatedOn,CreatedBy) 
+                                    VALUES(@Id,{string.Join(",", columns.Select(item => $"@{item}"))},@CreatedOn,@CreatedBy)";
+
+        using (var sqlCommand = new SqlCommand(buildPageInputQuery, connection, transaction))
+        {
+            foreach (var option in command.ColumnWithValues)
+            {
+                sqlCommand.Parameters.AddWithValue($"@{option.Key}", option.Value);
+            }
+
+            sqlCommand.Parameters.AddWithValue("@Id", pageInputId);
+            sqlCommand.Parameters.AddWithValue("@CreatedOn", DateTime.UtcNow);
+            sqlCommand.Parameters.AddWithValue("@CreatedBy", command.User);
+
+            await sqlCommand.ExecuteNonQueryAsync();
+        }
+    }
+
+    private async Task ExecuteMultiselectPageInputValueAsync(StringBuilder query,
+        SqlConnection connection,
+        SqlTransaction transaction)
+    {
+        using (var sqlCommand = new SqlCommand(query.ToString(), connection, transaction))
+        {
+            await sqlCommand.ExecuteNonQueryAsync();
+        }
+    }
+
+    private StringBuilder BuildMultiselectPageInputValueQuery(PostPageInputCommand command,Guid pageInputId)
+    {
+        var comboQueries = new StringBuilder();
+
+        foreach (var comboInput in command.ComboInputs)
+        {
+            if (comboInput.Data.Count > 0)
+            {
+                if (!string.IsNullOrWhiteSpace(comboInput.TableName))
+                {
+                    string tableName = $"tb_{command.TableName}{comboInput.TableName}";
+
+                    foreach (var data in comboInput.Data)
+                    {
+                        string buildQuery = @$"INSERT INTO {tableName} (Id,{command.TableName}Id,{comboInput.TableName}Id,CreatedOn,CreatedBy) 
+                                    VALUES('{Guid.NewGuid()}','{pageInputId}','{data.Id}','{DateTime.UtcNow}','{command.User}')";
+
+                        comboQueries.Append(buildQuery);
+                    }
+                }
+                else
+                {
+                    string tableName = $"tb_{command.TableName}{_defaultExtendTable}";
+
+                    foreach (var data in comboInput.Data)
+                    {
+                        string buildQuery = @$"INSERT INTO {tableName} (Id,{command.TableName}Id,Value,CreatedOn,CreatedBy) 
+                                    VALUES('{Guid.NewGuid()}','{pageInputId}','{data.Id}','{DateTime.UtcNow}','{command.User}')";
+
+                        comboQueries.Append(buildQuery);
+                    }
+
+                }
+            }
+        }
+
+        return comboQueries;
     }
 
     public async Task<bool> PutPageInputValuesAsync(PutPageInputCommand command)
@@ -352,13 +379,27 @@ public class PageService : IPageService
         foreach (var pageInput in pageInputs)
         {
             var comboData = pageInput.ComboInput!.Data;
+            var radioData = pageInput.RadioInput!.Data;
+            var checkboxData = pageInput.CheckBoxInput!.Data;
 
             if (pageInput.ComboInput!.IsDataBaseSource)
             {
                comboData = (await GetComboDataLookupAsync(pageInput.ComboInput.TableRef)).ToList();
             }
 
+            if (pageInput.RadioInput!.IsDataBaseSource)
+            {
+                radioData = (await GetRadioLookupAsync(pageInput.RadioInput.TableRef)).ToList();
+            }
+
+            if (pageInput.CheckBoxInput!.IsDataBaseSource)
+            {
+                checkboxData = (await GetCheckboxDataLookupAsync(pageInput.CheckBoxInput.TableRef)).ToList();
+            }
+
             pageInput.ComboInput.Data = comboData;
+            pageInput.RadioInput.Data = radioData;
+            pageInput.CheckBoxInput.Data = checkboxData;
         }
 
         return pageInputs;
@@ -460,10 +501,26 @@ public class PageService : IPageService
             .ToListAsync();
     }
      
-    private async Task<IEnumerable<Lookup<string>>> GetComboDataLookupAsync(ComboInputTableRefModel tableRef)
+    private async Task<IEnumerable<Lookup<string>>> GetComboDataLookupAsync(DatabaseTableRef tableRef)
     {
         return await _context.Database.SqlQueryRaw<Lookup<string>>(
             $"SELECT DISTINCT CONVERT(varchar(200),[{tableRef.IdColumn}]) as Id,[{tableRef.NameColumn}] as Name FROM [{tableRef.TableSchema}].[{tableRef.TableName}] ORDER BY Name"
+            )
+            .ToListAsync();
+    }
+
+    private async Task<IEnumerable<string>> GetRadioLookupAsync(DatabaseTableRef tableRef)
+    {
+        return await _context.Database.SqlQueryRaw<string>(
+            $"SELECT DISTINCT CONVERT(varchar(200),[{tableRef.IdColumn}]) as Id FROM [{tableRef.TableSchema}].[{tableRef.TableName}] ORDER BY Id"
+            )
+            .ToListAsync();
+    }
+
+    private async Task<IEnumerable<Lookup<string>>> GetCheckboxDataLookupAsync(DatabaseTableRef tableRef)
+    {
+        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+            $"SELECT DISTINCT CONVERT(varchar(200),[{tableRef.IdColumn}]) as Id,[{tableRef.IdColumn}] as Name FROM [{tableRef.TableSchema}].[{tableRef.TableName}] ORDER BY Name"
             )
             .ToListAsync();
     }
