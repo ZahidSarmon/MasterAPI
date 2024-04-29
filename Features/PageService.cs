@@ -7,10 +7,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Syncfusion.EJ2.Base;
-using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Text;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
 namespace Master.Features;
 
@@ -31,11 +29,11 @@ public class PageService : IPageService
 
         using (var connection = new SqlConnection(_context.Database.GetConnectionString()))
         {
-            var columns = $"Id,{string.Join(",", pageInputsDeserialize!
-                    .Where(i=>!string.IsNullOrWhiteSpace(i.DatabaseName))
-                    .Select(i => i.DatabaseName))}";
+            var safedColumns = pageInputsDeserialize!.Where(i => !string.IsNullOrWhiteSpace(i.DatabaseName)).Select(i=>i.DatabaseName);
 
-            string query = $"select {columns} from {page!.DatabaseName}";
+            var columns = $"Id,{string.Join(",", safedColumns)}";
+
+            string query = $"select Id,{string.Join(",", safedColumns.Select(i => $"[{i}]"))} from {page!.DatabaseName}";
 
             using (var sqlCommand = new SqlCommand(query, connection))
             {
@@ -171,7 +169,7 @@ public class PageService : IPageService
     {
         var columns = command.Columns.Where(i => !string.IsNullOrWhiteSpace(i));
 
-        string buildPageInputQuery = @$"INSERT INTO {command.TableName} (Id,{string.Join(",", columns)},CreatedOn,CreatedBy) 
+        string buildPageInputQuery = @$"INSERT INTO {command.TableName} (Id,{string.Join(",", columns.Select(i=>$"[{i}]"))},CreatedOn,CreatedBy) 
                                     VALUES(@Id,{string.Join(",", columns.Select(item => $"@{item}"))},@CreatedOn,@CreatedBy)";
 
         using (var sqlCommand = new SqlCommand(buildPageInputQuery, connection, transaction))
