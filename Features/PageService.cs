@@ -15,7 +15,8 @@ namespace Master.Features;
 public class PageService : IPageService
 {
     private readonly AppDbContext _context;
-    private const string _defaultExtendTable = "Multiselect";
+    private const string _defaultExtendTableMultiselect = "Multiselect";
+    private const string _defaultExtendTableCheckbox = "Checkbox";
     public PageService(AppDbContext context)
     {
         _context = context;
@@ -29,17 +30,75 @@ public class PageService : IPageService
 
         using (var connection = new SqlConnection(_context.Database.GetConnectionString()))
         {
-            var safedColumns = pageInputsDeserialize!.Where(i => !string.IsNullOrWhiteSpace(i.DatabaseName)).Select(i=>i.DatabaseName);
+            var safedColumns = pageInputsDeserialize!.Where(i => !string.IsNullOrWhiteSpace(i.DatabaseName)).Select(i=>i.DatabaseName).ToList();
 
-            var columns = $"Id,{string.Join(",", safedColumns)}";
+            var columnHeader = new List<string>();
+            columnHeader.AddRange(safedColumns!);
 
-            string query = $"select Id,{string.Join(",", safedColumns.Select(i => $"[{i}]"))} from {page!.DatabaseName}";
+            foreach (var pageInput in pageInputsDeserialize!)
+            {
+                if (pageInput.FieldType == FieldType.MultiSelect.Name)
+                {
+                    string columnTitle = pageInput.Title!.Replace(" ", "");
+
+                    if (pageInput.ComboInput!.IsDataBaseSource)
+                    {
+                        string table = $"tb_{page!.DatabaseName}{pageInput.ComboInput.TableRef.TableName}";
+
+                        string buildQuery = @$"
+                                        SELECT 
+	                                        STRING_AGG({table}.[{pageInput.ComboInput.TableRef.NameColumn}],',') AS {columnTitle}
+                                        FROM 
+                                        {page!.DatabaseName} baseTable
+                                        LEFT JOIN
+	                                        (
+		                                        SELECT {table}.{page!.DatabaseName}Id {page!.DatabaseName}Id,[Name] FROM {pageInput.ComboInput.TableRef.TableName} 
+		                                        INNER JOIN {table} 
+		                                        ON Category.Id = {table}.CategoryId
+	                                        ) 
+                                        {table} on {table}.{page!.DatabaseName}Id = baseTable.Id
+                                        ";
+
+                        string newColumn = await GetAdditionalColumnQueryAsync(connection,buildQuery, columnTitle);
+
+                        safedColumns.Add(@$"'{newColumn}' as {columnTitle}");
+                        columnHeader.Add(columnTitle);
+                    }
+                    else
+                    {
+                        string table = $"tb_{page!.DatabaseName}{_defaultExtendTableMultiselect}";
+
+                        string buildQuery = @$"
+                                            SELECT 
+                                                STRING_AGG({table}.[Value], ',') AS {pageInput.Title!.Replace(" ", "")}
+                                            FROM 
+                                                {page!.DatabaseName} baseTable
+                                            LEFT JOIN
+	                                            {table} on {table}.{page!.DatabaseName}Id = baseTable.Id";
+
+                        string newColumn = await GetAdditionalColumnQueryAsync(connection,buildQuery, columnTitle);
+
+                        safedColumns.Add(@$"'{newColumn}' as {pageInput.Title!.Replace(" ", "")}");
+                        columnHeader.Add(columnTitle);
+                    }
+                }
+            }
+
+            string columnQuery = !safedColumns.Any()? "Id" : $"Id,{string.Join(",", safedColumns)}";
+
+            string query = @$"
+                    SELECT 
+                        {columnQuery} 
+                    FROM 
+                        {page!.DatabaseName} baseTable";
+
+            if (!safedColumns.Any()) query = $"select Id from {page!.DatabaseName}";
 
             using (var sqlCommand = new SqlCommand(query, connection))
             {
                 try
                 {
-                    connection.Open();
+                    if (connection!=null && connection.State == ConnectionState.Closed) connection.Open();
 
                     using (SqlDataReader reader = sqlCommand.ExecuteReader())
                     {
@@ -60,7 +119,7 @@ public class PageService : IPageService
 
                         string jsonArray = JsonConvert.SerializeObject(dataArray);
 
-                        return new PageInputValueModel(columns, jsonArray);
+                        return new PageInputValueModel("Id,"+string.Join(",", columnHeader), jsonArray);
                     }
                 }
                 finally
@@ -219,7 +278,7 @@ public class PageService : IPageService
                 }
                 else
                 {
-                    string tableName = $"tb_{command.TableName}{_defaultExtendTable}";
+                    string tableName = $"tb_{command.TableName}{_defaultExtendTableMultiselect}";
 
                     foreach (var data in comboInput.Data)
                     {
@@ -311,13 +370,13 @@ public class PageService : IPageService
 
                 string baseTable = page.DatabaseName;
                 string deriveTable = pageInput.ComboInput!.TableRef.TableName!;
-                string extendTable = $"tb_{baseTable}{_defaultExtendTable}".ToLower();
+                string extendTable = $"tb_{baseTable}{_defaultExtendTableMultiselect}";
                 string baseId = $"{baseTable}Id";
                 string derivedId = "Value";
 
                 if (pageInput.ComboInput.IsDataBaseSource && !string.IsNullOrWhiteSpace(deriveTable))
                 {
-                    extendTable = $"tb_{baseTable}{deriveTable}".ToLower();
+                    extendTable = $"tb_{baseTable}{deriveTable}";
                     derivedId = $"{deriveTable}Id";
                     extendFields.Append($"[{derivedId}][{DatabaseDataType.Guid.Name}] NULL,");
                 }
@@ -468,6 +527,28 @@ public class PageService : IPageService
         return await _context.SaveChangesAsync() > 0;
     }
 
+    private async Task<string> GetAdditionalColumnQueryAsync(SqlConnection connection,string buildQuery,string columnTitle)
+    {
+        try
+        {
+            if (connection != null && connection.State == ConnectionState.Closed) connection.Open();
+
+            using (var sqlCommand = new SqlCommand(buildQuery, connection))
+            {
+                var reader = await sqlCommand.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return reader[columnTitle].ToString()!;
+                }
+            }
+        }
+        finally
+        {
+            connection.Close();
+        }
+        return string.Empty;
+    }
+
     public async Task<IEnumerable<Lookup<string>>> GetTableColumnsAsync(string schema,string table)
     {
         return await _context.Database.SqlQueryRaw<Lookup<string>>(
@@ -515,9 +596,9 @@ public class PageService : IPageService
             .ToListAsync();
     }
 
-    private async Task<IEnumerable<Lookup<string>>> GetCheckboxDataLookupAsync(DatabaseTableRef tableRef)
+    private async Task<IEnumerable<string>> GetCheckboxDataLookupAsync(DatabaseTableRef tableRef)
     {
-        return await _context.Database.SqlQueryRaw<Lookup<string>>(
+        return await _context.Database.SqlQueryRaw<string>(
             $"SELECT DISTINCT CONVERT(varchar(200),[{tableRef.IdColumn}]) as Id,[{tableRef.IdColumn}] as Name FROM [{tableRef.TableSchema}].[{tableRef.TableName}] ORDER BY Name"
             )
             .ToListAsync();

@@ -37,7 +37,7 @@ public class RadioInputModel
 public class CheckboxInputModel
 {
     public bool IsDataBaseSource { get; set; }
-    public List<Lookup<string>> Data { get; set; } = new();
+    public List<string> Data { get; set; } = new();
     public DatabaseTableRef TableRef { get; set; } = new();
 }
 
