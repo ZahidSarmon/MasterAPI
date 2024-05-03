@@ -33,7 +33,10 @@ public class PageService : IPageService
             var safedColumns = pageInputsDeserialize!.Where(i => !string.IsNullOrWhiteSpace(i.DatabaseName)).Select(i=>i.DatabaseName).ToList();
 
             var columnHeader = new List<string>();
+
             columnHeader.AddRange(safedColumns!);
+
+            var additionalQueries = new List<string>();
 
             foreach (var pageInput in pageInputsDeserialize!)
             {
@@ -46,39 +49,35 @@ public class PageService : IPageService
                         string table = $"tb_{page!.DatabaseName}{pageInput.ComboInput.TableRef.TableName}";
 
                         string buildQuery = @$"
-                                        SELECT 
-	                                        STRING_AGG({table}.[{pageInput.ComboInput.TableRef.NameColumn}],',') AS {columnTitle}
-                                        FROM 
-                                        {page!.DatabaseName} baseTable
-                                        LEFT JOIN
-	                                        (
-		                                        SELECT {table}.{page!.DatabaseName}Id {page!.DatabaseName}Id,[Name] FROM {pageInput.ComboInput.TableRef.TableName} 
-		                                        INNER JOIN {table} 
-		                                        ON Category.Id = {table}.CategoryId
-	                                        ) 
-                                        {table} on {table}.{page!.DatabaseName}Id = baseTable.Id
-                                        ";
+                                        (SELECT 
+		                                    STRING_AGG({table}.[{pageInput.ComboInput.TableRef.NameColumn}],',') AS {columnTitle}
+	                                    FROM 
+		                                    (
+			                                    SELECT {table}.{page!.DatabaseName}Id {page!.DatabaseName}Id,[Name] FROM {pageInput.ComboInput.TableRef.TableName}  
+			                                    INNER JOIN {table}  
+			                                    ON {pageInput.ComboInput.TableRef.TableName}.Id = {table}.{pageInput.ComboInput.TableRef.TableName}Id
+		                                    ) as  {table}
+	                                    WHERE {table}.{page!.DatabaseName}Id = baseTable.Id
+	                                    ) AS {columnTitle}";
 
-                        string newColumn = await GetAdditionalColumnQueryAsync(connection,buildQuery, columnTitle);
+                        additionalQueries.Add(buildQuery);
 
-                        safedColumns.Add(@$"'{newColumn}' as {columnTitle}");
                         columnHeader.Add(columnTitle);
                     }
                     else
                     {
                         string table = $"tb_{page!.DatabaseName}{_defaultExtendTableMultiselect}";
 
-                        string buildQuery = @$"
-                                            SELECT 
-                                                STRING_AGG({table}.[Value], ',') AS {pageInput.Title!.Replace(" ", "")}
-                                            FROM 
-                                                {page!.DatabaseName} baseTable
-                                            LEFT JOIN
-	                                            {table} on {table}.{page!.DatabaseName}Id = baseTable.Id";
+                        string buildQuery = @$"(SELECT 
+			                                        STRING_AGG({table}.[Value], ',') AS {columnTitle}
+		                                        FROM 
+			                                        {table}
+		                                        WHERE
+			                                        {table}.{page!.DatabaseName}Id = baseTable.Id
+	                                        ) AS {columnTitle}";
 
-                        string newColumn = await GetAdditionalColumnQueryAsync(connection,buildQuery, columnTitle);
+                        additionalQueries.Add(buildQuery);
 
-                        safedColumns.Add(@$"'{newColumn}' as {pageInput.Title!.Replace(" ", "")}");
                         columnHeader.Add(columnTitle);
                     }
                 }
@@ -86,9 +85,12 @@ public class PageService : IPageService
 
             string columnQuery = !safedColumns.Any()? "Id" : $"Id,{string.Join(",", safedColumns)}";
 
+            string additionalQuery = additionalQueries.Any() ? ","+string.Join(",", additionalQueries) : "";
+
             string query = @$"
                     SELECT 
                         {columnQuery} 
+                        {additionalQuery}
                     FROM 
                         {page!.DatabaseName} baseTable";
 
