@@ -76,11 +76,18 @@ public class PageController : BaseController
         return Ok(isCommand);
     }
 
-
     [HttpGet("GetPageInputValues",Name = "GetPageInputValues")]
     public async Task<IActionResult> GetPageInputValues([FromQuery] Guid id)
     {
         var pageInputValue = await _service.GetPageInputValuesAsync(id);
+
+        return Ok(pageInputValue);
+    }
+
+    [HttpGet("GetPageInputValue", Name = "GetPageInputValue")]
+    public async Task<IActionResult> GetPageInputValue([FromQuery] Guid id)
+    {
+        var pageInputValue = await _service.GetPageInputValueAsync(id);
 
         return Ok(pageInputValue);
     }

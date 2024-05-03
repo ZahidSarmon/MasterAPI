@@ -7,6 +7,8 @@ public interface IPageService
 {
     Task<PageInputValueModel> GetPageInputValuesAsync(Guid pageId);
 
+    Task<IEnumerable<PageInputModel>> GetPageInputValueAsync(Guid pageId);
+
     Task<bool> PostPageInputValuesAsync(PostPageInputCommand command);
 
     Task<bool> PutPageInputValuesAsync(PutPageInputCommand command);
