@@ -160,6 +160,8 @@ public class PageService : IPageService
         {
             try
             {
+                connection.Open();
+
                 transaction = connection.BeginTransaction("DeletePageInputValueAsync");
 
                 bool hasDelete = await DeletePageInputValueAsync(connection, transaction, command.TableName, command.Id);
@@ -175,6 +177,8 @@ public class PageService : IPageService
             finally
             {
                 if (transaction != null) transaction.Dispose();
+
+                connection.Close();
             }
         }
 
@@ -376,7 +380,7 @@ public class PageService : IPageService
                 else if (pageInput.DataType!.Equals(DatabaseDataType.Decimal.Name)
                     || pageInput.DataType!.Equals(DatabaseDataType.Numeric.Name))
                 {
-                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}]({pageInput.DecimalPlace}) NULL,");
+                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}](18,{pageInput.DecimalPlace}) NULL,");
                 }
                 else
                 {
