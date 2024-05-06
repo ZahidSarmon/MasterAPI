@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using Syncfusion.EJ2.Base;
 using System.Data;
 using System.Text;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
 namespace Master.Features;
 
@@ -101,7 +102,7 @@ public class PageService : IPageService
         }
     }
 
-    public async Task<IEnumerable<PageInputModel>> GetPageInputValueAsync(Guid pageId)
+    public async Task<IEnumerable<PageInputModel>> GetPageInputValueAsync(Guid pageId,Guid pageTableId)
     {
         var page = await GetPageAsync(pageId);
 
@@ -111,13 +112,13 @@ public class PageService : IPageService
         {
             foreach (var pageInput in pageInputsDeserialize)
             {
-                string columnTitle = pageInput.Title!.Replace(" ", "");
+                string columnTitle = $"col_{pageInput.Title!.Replace(" ", "")}";
 
                 if (pageInput.FieldType == FieldType.MultiSelect.Name)
                 {
                     if (pageInput.ComboInput!.IsDataBaseSource)
                     {
-                        string buildColumnQuery = BuildMultiselectQueryDbSourceInputValues(page, pageInput,true);
+                        string buildColumnQuery = BuildMultiselectQueryDbSourceInputValues(page, pageInput,pageTableId,true);
 
                         string columnValues = await GetMultiselectColumnValueAsync(connection, buildColumnQuery, columnTitle);
 
@@ -133,11 +134,16 @@ public class PageService : IPageService
                     }
                     else
                     {
-                        string buildColumnQuery = BuildMultiselectQueryInputValues(page, pageInput);
+                        string buildColumnQuery = BuildMultiselectQueryInputValues(page, pageInput,pageTableId,true);
 
                         string columnValues = await GetMultiselectColumnValueAsync(connection, buildColumnQuery, columnTitle);
 
-                        pageInput.ComboInput.Data = columnValues.Contains(",") ? columnValues.Split(",").Select(i => new Lookup<string> { Id = i, Name = i }).ToList() : Enumerable.Empty<Lookup<string>>().ToList();
+                        if (!string.IsNullOrWhiteSpace(columnValues))
+                        {
+                            pageInput.ComboInput.Data = columnValues.Contains(",") ? 
+                                    columnValues.Split(",").Select(i => new Lookup<string> { Id = i, Name = i }).ToList() : 
+                                    new List<string>{ columnValues}.Select(i => new Lookup<string> { Id = i, Name = i }).ToList();
+                        }
                     }
                 }
             }
@@ -146,26 +152,33 @@ public class PageService : IPageService
         return pageInputsDeserialize;
     }
 
-    public async Task<bool> DeletePageInputValuesAsync(DeletePageCommand command)
+    public async Task<bool> DeletePageInputValueAsync(DeletePageCommand command)
     {
+        SqlTransaction transaction = null;
+
         using (var connection = new SqlConnection(_context.Database.GetConnectionString()))
         {
             try
             {
-                string buildQuery = @$"DELETE {command.TableName} WHERE Id = @Id";
+                transaction = connection.BeginTransaction("DeletePageInputValueAsync");
 
-                using (var sqlCommand = new SqlCommand(buildQuery, connection))
-                {
-                    connection.Open();
-                    sqlCommand.Parameters.AddWithValue("@Id", command.Id);
-                    return await sqlCommand.ExecuteNonQueryAsync() > 0;
-                }
+                bool hasDelete = await DeletePageInputValueAsync(connection, transaction, command.TableName, command.Id);
+
+                transaction.Commit();
+
+                return hasDelete;
+            }
+            catch (Exception)
+            {
+                if (transaction != null) transaction.Rollback();
             }
             finally
             {
-                connection.Close();
+                if (transaction != null) transaction.Dispose();
             }
         }
+
+        return false;
     }
 
     public async Task<bool> PostPageInputValuesAsync(PostPageInputCommand command)
@@ -182,14 +195,12 @@ public class PageService : IPageService
 
                 transaction = connection.BeginTransaction("PostPageInputValuesAsync");
 
-                if (command.Id is not null && command.Id != Guid.Empty)
+                if (command.Id.HasValue)
                 {
-                    await UpdatePageInputValueAsync(command, connection,transaction);
+                    await DeletePageInputValueAsync(connection,transaction,command.TableName,command.Id.Value);
                 }
-                else
-                {
-                    await SavePageInputValueAsync(command, connection, transaction,pageInputId);
-                }
+
+                await SavePageInputValueAsync(command, connection, transaction, pageInputId);
 
                 var multiselectQuery = BuildMultiselectPageInputValueQuery(command,pageInputId);
 
@@ -215,28 +226,6 @@ public class PageService : IPageService
         }
     }
 
-    private async Task UpdatePageInputValueAsync(PostPageInputCommand command,
-        SqlConnection connection,
-        SqlTransaction transaction)
-    {
-        string buildQuery = @$"UPDATE {command.TableName}
-                                    SET {string.Join(",", command.Columns.Select(item => $"{item}=@{item}"))}
-                                    WHERE Id = @Id";
-
-        using (var sqlCommand = new SqlCommand(buildQuery, connection, transaction))
-        {
-            foreach (var option in command.ColumnWithValues)
-            {
-                sqlCommand.Parameters.AddWithValue($"@{option.Key}", option.Value);
-            }
-
-            sqlCommand.Parameters.AddWithValue("@ModifiedOn", DateTime.UtcNow);
-            sqlCommand.Parameters.AddWithValue("@ModifiedBy", command.User);
-
-            await sqlCommand.ExecuteNonQueryAsync();
-        }
-    }
-
     private async Task SavePageInputValueAsync(PostPageInputCommand command, 
         SqlConnection connection, 
         SqlTransaction transaction,
@@ -244,14 +233,21 @@ public class PageService : IPageService
     {
         var columns = command.Columns.Where(i => !string.IsNullOrWhiteSpace(i));
 
-        string buildPageInputQuery = @$"INSERT INTO {command.TableName} (Id,{string.Join(",", columns.Select(i=>$"[{i}]"))},CreatedOn,CreatedBy) 
-                                    VALUES(@Id,{string.Join(",", columns.Select(item => $"@{item}"))},@CreatedOn,@CreatedBy)";
+        string columnHeaders = columns.Any() ? ","+string.Join(",", columns.Select(i => $"[{i}]")) : string.Empty;
+
+        string columnValue = columns.Any() ? ","+string.Join(",", columns.Select(item => $"@{item}")) : string.Empty;
+
+        string buildPageInputQuery = @$"INSERT INTO [dbo].[{command.TableName}] (Id{columnHeaders},CreatedOn,CreatedBy) 
+                                    VALUES(@Id{columnValue},@CreatedOn,@CreatedBy)";
 
         using (var sqlCommand = new SqlCommand(buildPageInputQuery, connection, transaction))
         {
             foreach (var option in command.ColumnWithValues)
             {
-                sqlCommand.Parameters.AddWithValue($"@{option.Key}", option.Value);
+                if (option.Key.IsSafedKey())
+                {
+                    sqlCommand.Parameters.AddWithValue($"@{option.Key}", option.Value);
+                }
             }
 
             sqlCommand.Parameters.AddWithValue("@Id", pageInputId);
@@ -494,6 +490,18 @@ public class PageService : IPageService
         return await _context.SaveChangesAsync() > 0;
     }
 
+    private async Task<bool> DeletePageInputValueAsync(SqlConnection connection,SqlTransaction transaction, string tableName, Guid id)
+    {
+        string buildQuery = @$"DELETE [dbo].[{tableName}] WHERE Id = @Id";
+
+        using (var sqlCommand = new SqlCommand(buildQuery, connection, transaction))
+        {
+            sqlCommand.Parameters.AddWithValue("@Id", id);
+
+            return await sqlCommand.ExecuteNonQueryAsync() > 0;
+        }
+    }
+
     private async Task<string> GetMultiselectColumnValueAsync(SqlConnection connection,string buildQuery,string columnTitle)
     {
         try
@@ -513,6 +521,7 @@ public class PageService : IPageService
         {
             connection.Close();
         }
+
         return string.Empty;
     }
 
@@ -576,53 +585,57 @@ public class PageService : IPageService
                         {columnQuery} 
                         {additionalQuery}
                     FROM 
-                        {databaseName} baseTable";
+                        [dbo].[{databaseName}] baseTable";
 
-        if (!columns.Any()) query = $"select Id from {databaseName}";
+        if (!columns.Any() && !additionalQueries.Any()) query = $"select Id from {databaseName}";
 
         return query;
     }
 
-    private string BuildMultiselectQueryDbSourceInputValues(Page page,PageInputModel pageInput,bool readIdColumn=false,bool isColumn=true)
+    private string BuildMultiselectQueryDbSourceInputValues(Page page,PageInputModel pageInput,Guid? pageTableId=null,bool isUpdate=false)
     {
-        string columnTitle = pageInput.Title!.Replace(" ", "");
+        string columnTitle = $"col_{pageInput.Title!.Replace(" ", "")}";
 
-        string table = $"tb_{page!.DatabaseName}{pageInput.ComboInput.TableRef.TableName}";
+        string table = $"[tb_{page!.DatabaseName}{pageInput.ComboInput.TableRef.TableName}]";
 
-        string column = readIdColumn ? pageInput.ComboInput.TableRef.IdColumn : pageInput.ComboInput.TableRef.NameColumn;
+        string baseTableId = isUpdate ? $"'{pageTableId}'" : "baseTable.Id";
+
+        string column = isUpdate ? pageInput.ComboInput.TableRef.IdColumn : pageInput.ComboInput.TableRef.NameColumn;
+
+        string referance_table = $"[{pageInput.ComboInput.TableRef.TableSchema}].[{pageInput.ComboInput.TableRef.TableName}]";
 
         string query = $@"SELECT 
-		                    STRING_AGG({table}.[{column}],',') AS {columnTitle}
+		                    STRING_AGG(CONVERT(varchar(max),{table}.[{column}]),',') AS {columnTitle}
 	                    FROM 
 		                    (
-			                    SELECT {table}.{page!.DatabaseName}Id {page!.DatabaseName}Id,[Name] FROM {pageInput.ComboInput.TableRef.TableName}  
+			                    SELECT {table}.[{page!.DatabaseName}Id] AS {page!.DatabaseName}Id,{referance_table}.[{column}] 
+                                FROM {referance_table}  
 			                    INNER JOIN {table}  
-			                    ON {pageInput.ComboInput.TableRef.TableName}.Id = {table}.{pageInput.ComboInput.TableRef.TableName}Id
+			                    ON {referance_table}.[Id] = {table}.[{pageInput.ComboInput.TableRef.TableName}Id]
 		                    ) as  {table}
-	                    WHERE {table}.{page!.DatabaseName}Id = baseTable.Id";
+	                    WHERE {table}.[{page!.DatabaseName}Id] = {baseTableId}";
 
-        if (!isColumn) return query;
+        if (isUpdate) return query;
 
         return @$"({query}) AS {columnTitle}";
     }
 
-    private string BuildMultiselectQueryInputValues(Page page, PageInputModel pageInput, bool isColumn=true)
+    private string BuildMultiselectQueryInputValues(Page page, PageInputModel pageInput,Guid? pageTableId=null,  bool isUpdate=false)
     {
-        string columnTitle = pageInput.Title!.Replace(" ", "");
+        string columnTitle = $"col_{pageInput.Title!.Replace(" ", "")}";
 
-        string table = $"tb_{page!.DatabaseName}{pageInput.ComboInput.TableRef.TableName}";
+        string table = $"[tb_{page!.DatabaseName}{_defaultExtendTableMultiselect}]";
+
+        string baseTableId = isUpdate ? $"'{pageTableId}'" : "baseTable.Id";
 
         string query = @$"SELECT 
-		                    STRING_AGG({table}.[{pageInput.ComboInput.TableRef.NameColumn}],',') AS {columnTitle}
-	                    FROM 
-		                    (
-			                    SELECT {table}.{page!.DatabaseName}Id {page!.DatabaseName}Id,[Name] FROM {pageInput.ComboInput.TableRef.TableName}  
-			                    INNER JOIN {table}  
-			                    ON {pageInput.ComboInput.TableRef.TableName}.Id = {table}.{pageInput.ComboInput.TableRef.TableName}Id
-		                    ) as  {table}
-	                    WHERE {table}.{page!.DatabaseName}Id = baseTable.Id";
+	                            STRING_AGG({table}.[Value], ',') AS {columnTitle}
+                            FROM 
+	                            {table}
+                            WHERE
+	                            {table}.{page!.DatabaseName}Id = {baseTableId}";
 
-        if (!isColumn) return query;
+        if (isUpdate) return query;
 
         return @$"({query}) AS {columnTitle}";
     }
@@ -634,10 +647,10 @@ public class PageService : IPageService
 
     private string BuildLookupDataQueryForMultiselect(string tableSchema,string tableName,string columnId,string columnName,string parameter)
     {
-        string safeParameter = parameter.Contains(",")?string.Join(",", parameter.Split(',').Select(i => $"'{i}'")) : parameter;
+        string safeParameter = parameter.Contains(",")?string.Join(",", parameter.Split(',').Select(i => $"'{i}'")) : $"'{parameter}'";
 
         return $@"
-            SELECT [{columnId}],[{columnName}] FROM [{tableSchema}].[{tableName}] 
+            SELECT CONVERT(varchar(max),[{columnId}]) as Id,[{columnName}] FROM [{tableSchema}].[{tableName}] 
             WHERE [{columnId}] IN ({safeParameter})
             ";
     }

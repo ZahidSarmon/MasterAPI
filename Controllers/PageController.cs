@@ -71,7 +71,7 @@ public class PageController : BaseController
     [HttpDelete("DeletePageInputValues",Name = "DeletePageInputValues")]
     public async Task<IActionResult> DeletePageInputValues([FromQuery] DeletePageCommand command)
     {
-        var isCommand = await _service.DeletePageInputValuesAsync(command);
+        var isCommand = await _service.DeletePageInputValueAsync(command);
 
         return Ok(isCommand);
     }
@@ -85,9 +85,9 @@ public class PageController : BaseController
     }
 
     [HttpGet("GetPageInputValue", Name = "GetPageInputValue")]
-    public async Task<IActionResult> GetPageInputValue([FromQuery] Guid id)
+    public async Task<IActionResult> GetPageInputValue([FromQuery] Guid pageId,Guid pageTableId)
     {
-        var pageInputValue = await _service.GetPageInputValueAsync(id);
+        var pageInputValue = await _service.GetPageInputValueAsync(pageId,pageTableId);
 
         return Ok(pageInputValue);
     }
