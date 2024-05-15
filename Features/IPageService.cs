@@ -30,4 +30,6 @@ public interface IPageService
     Task<Property<Entities.Page>> GetPagesAsync(PageDR pagination);
 
     Task<bool> DeletePageAsync(Guid id);
+
+    Task<bool> PostPageExcelInputValueAsync(PostPageExcelInputCommand command);
 }

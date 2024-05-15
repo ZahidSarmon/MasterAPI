@@ -9,7 +9,6 @@ using Newtonsoft.Json;
 using Syncfusion.EJ2.Base;
 using System.Data;
 using System.Text;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
 namespace Master.Features;
 
@@ -230,7 +229,38 @@ public class PageService : IPageService
         }
     }
 
-    private async Task SavePageInputValueAsync(PostPageInputCommand command, 
+    public async Task<bool> PostPageExcelInputValueAsync(PostPageExcelInputCommand command)
+    {
+        
+        using (var connection = new SqlConnection(_context.Database.GetConnectionString()))
+        {
+            connection.Open();
+
+            var queries = new StringBuilder();
+
+            foreach (var value in command.Values)
+            {
+                var columns = command.Columns.Where(i => !string.IsNullOrWhiteSpace(i));
+
+                string columnHeaders = string.Join(",", columns.Select(i => $"[{i}]"));
+
+                string columnValues = string.Join(",",value.Select(i=>$"'{i.Replace("'"," ")}'"));
+
+                string buildPageInputQuery = @$"INSERT INTO [dbo].[{command.TableName}] (Id,{columnHeaders},CreatedOn,CreatedBy) 
+                                    VALUES('{Guid.NewGuid()}',{columnValues},'{DateTime.UtcNow}','{command.User}')";
+
+                queries.Append(buildPageInputQuery);
+            }
+
+            using (var sqlCommand = new SqlCommand(queries.ToString(),connection))
+            {
+                return await sqlCommand.ExecuteNonQueryAsync()>0;
+            }
+        }
+    }
+
+    private async Task SavePageInputValueAsync(
+        PostPageInputCommand command, 
         SqlConnection connection, 
         SqlTransaction transaction,
         Guid pageInputId)

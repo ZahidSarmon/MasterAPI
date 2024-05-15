@@ -116,4 +116,12 @@ public class PageController : BaseController
         return Ok(tableSchemas);
     }
 
+    [HttpPost("PostPageExcelInputValues",Name = "PostPageExcelInputValues")]
+    public async Task<IActionResult> PostPageExcelInputValues(PostPageExcelInputCommand command)
+    {
+        var isCommand = await _service.PostPageExcelInputValueAsync(command);
+
+        return Ok(isCommand);
+    }
+
 }
