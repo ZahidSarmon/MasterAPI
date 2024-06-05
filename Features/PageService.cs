@@ -167,11 +167,13 @@ public class PageService : IPageService
 
                 transaction.Commit();
 
-                return hasDelete;
+                return await Task.FromResult(hasDelete);
             }
             catch (Exception)
             {
                 if (transaction != null) transaction.Rollback();
+
+                throw;
             }
             finally
             {
@@ -180,8 +182,6 @@ public class PageService : IPageService
                 connection.Close();
             }
         }
-
-        return false;
     }
 
     public async Task<bool> PostPageInputValuesAsync(PostPageInputCommand command)
@@ -214,18 +214,18 @@ public class PageService : IPageService
 
                 transaction.Commit();
 
-                return true;
+                return await Task.FromResult(true);
             }
             catch
             {
                 if (transaction != null) transaction.Rollback();
+
+                throw;
             }
             finally
             {
                 connection.Close();
             }
-
-            return false;
         }
     }
 
@@ -370,24 +370,26 @@ public class PageService : IPageService
                 string extendTable = $"tb_{baseTable}{_defaultExtendTableMultiselect}";
                 string baseId = $"{baseTable}Id";
                 string derivedId = "Value";
+                string requiredText = "NULL";
 
                 if (pageInput.ComboInput.IsDataBaseSource && !string.IsNullOrWhiteSpace(deriveTable))
                 {
                     extendTable = $"tb_{baseTable}{deriveTable}";
                     derivedId = $"{deriveTable}Id";
-                    extendFields.Append($"[{derivedId}][{DatabaseDataType.Guid.Name}] NULL,");
+                    extendFields.Append($"[{derivedId}][{DatabaseDataType.Guid.Name}] {requiredText},");
                 }
                 else
                 {
-                    extendFields.Append($"[{derivedId}][{DatabaseDataType.Varchar.Name}](MAX) NULL,");
+                    extendFields.Append($"[{derivedId}][{DatabaseDataType.Varchar.Name}](MAX) {requiredText},");
                 }
 
-                extendFields.Append($"[{baseId}][{DatabaseDataType.Guid.Name}] NULL,");
+                extendFields.Append($"[{baseId}][{DatabaseDataType.Guid.Name}] {requiredText},");
 
                 await TableGenerateAsync(extendTable, extendFields);
             }
             else
             {
+                string requiredText = pageInput.IsRequired ? "NOT NULL" : "NULL";
                 if (
                 pageInput.DataType!.Equals(DatabaseDataType.Binary.Name)
                 || pageInput.DataType!.Equals(DatabaseDataType.Char.Name)
@@ -397,7 +399,7 @@ public class PageService : IPageService
                 || pageInput.DataType!.Equals(DatabaseDataType.Varchar.Name)
                 )
                 {
-                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}]({pageInput.Size}) NULL,");
+                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}]({pageInput.Size}) {requiredText},");
                 }
                 else if (
                     pageInput.DataType!.Equals(DatabaseDataType.DateTime2.Name)
@@ -405,16 +407,16 @@ public class PageService : IPageService
                     || pageInput.DataType!.Equals(DatabaseDataType.Time.Name)
                     )
                 {
-                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}](7) NULL,");
+                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}](7) {requiredText},");
                 }
                 else if (pageInput.DataType!.Equals(DatabaseDataType.Decimal.Name)
                     || pageInput.DataType!.Equals(DatabaseDataType.Numeric.Name))
                 {
-                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}](18,{pageInput.DecimalPlace}) NULL,");
+                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}](18,{pageInput.DecimalPlace}) {requiredText},");
                 }
                 else
                 {
-                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}] NULL,");
+                    pageInputFields.Append($"[{pageInput.DatabaseName!.Trim()}][{pageInput.DataType}] {requiredText},");
                 }
             }
         }

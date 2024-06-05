@@ -1,6 +1,7 @@
 ﻿using Master.Features;
 using Master.Features.DTOs;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json.Linq;
 
 namespace Master.Controllers;
 
@@ -122,6 +123,102 @@ public class PageController : BaseController
         var isCommand = await _service.PostPageExcelInputValueAsync(command);
 
         return Ok(isCommand);
+    }
+
+    [HttpGet("ParseTest",Name = "ParseTest")]
+    public async Task<IActionResult> ParseTest()
+    {
+        JsonTest();
+
+        return Ok();
+    }
+
+    private void JsonTest()
+    {
+        string basePath = Directory.GetParent(@"./")!.FullName;
+        var _path = Path.Combine(basePath, "Json\\parser.json");
+        var jsonData = System.IO.File.ReadAllText(_path);
+
+        List<IDictionary<string, IDictionary<string, string>>> dataList = new();
+        JArray jsonArray = JArray.Parse(jsonData);
+        foreach (JObject jsonObject in jsonArray)
+        {
+            BuildList(jsonObject, ref dataList);
+        }
+
+        var data = dataList.ToArray();
+    }
+
+    private void BuildList(JObject jsonObject, ref List<IDictionary<string, IDictionary<string, string>>> dataList, string parentKey = "Person")
+    {
+        var colValue = new Dictionary<string, string>();
+
+        var tableList = new Dictionary<string, IDictionary<string, string>>()!;
+
+        foreach (var property in jsonObject.Properties())
+        {
+            string parentId = Guid.NewGuid().ToString();
+
+            string key = property.Name;
+
+            JToken value = property.Value;
+
+            if (value.Type == JTokenType.Object)
+            {
+                BuildList((JObject)value, ref dataList, key);
+            }
+            else if (value.Type == JTokenType.Array)
+            {
+                int idx = 0;
+                foreach (var arrayItem in (JArray)value)
+                {
+                    BuildList((JObject)arrayItem, ref dataList, key);
+                    idx++;
+                }
+            }
+            else
+            {
+                colValue.Add(key, value.ToString());
+
+                if (tableList.ContainsKey(parentKey))
+                {
+                    tableList[parentKey] = colValue;
+                }
+                else
+                {
+                    tableList.Add(parentKey, colValue);
+                }
+            }
+        }
+
+        /*foreach (var dataDict in dataList)
+        {
+            foreach (var table in tableList)
+            {
+                if (dataDict.ContainsKey(table.Key))
+                {
+                    var val = table;
+
+                }
+                foreach (var data in dataDict)
+                {
+                    if (table.Key.Equals(data.Key))
+                    {
+
+                    }
+                }
+            }
+        }*/
+
+        var index = dataList.FindIndex(item => item.ContainsKey(parentKey));
+        if (index != -1)
+        {
+            dataList[index].Add(parentKey, tableList[parentKey]);
+        }
+        else
+        {
+            dataList.Add(tableList);
+        }
     }
 
 }
